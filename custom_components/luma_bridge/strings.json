@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tiles for Luma",
+        "description": "Choose the lights, switches, covers, scenes and scripts that should appear on the TV.",
+        "data": {
+          "entities": "Entities"
+        }
+      },
+      "token": {
+        "title": "Code for the TV",
+        "description": "In Luma, enter this Home Assistant address and this code:\n\n{token}\n\nThe code stays in this integration. Open the integration options to see it again."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Luma Bridge is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Luma tiles",
+        "description": "TV code: {token}",
+        "data": {
+          "entities": "Entities"
+        }
+      }
+    }
+  }
+}

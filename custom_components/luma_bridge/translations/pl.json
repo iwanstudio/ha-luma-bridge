@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kafelki dla Lumy",
+        "description": "Wybierz światła, przełączniki, rolety, sceny i skrypty, które mają być na telewizorze.",
+        "data": {
+          "entities": "Encje"
+        }
+      },
+      "token": {
+        "title": "Kod dla telewizora",
+        "description": "W Lumie wpisz adres tego Home Assistanta i ten kod:\n\n{token}\n\nKod zostaje w tej integracji. Można go podejrzeć w opcjach."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Luma Bridge jest już dodana."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kafelki Luma",
+        "description": "Kod telewizora: {token}",
+        "data": {
+          "entities": "Encje"
+        }
+      }
+    }
+  }
+}
