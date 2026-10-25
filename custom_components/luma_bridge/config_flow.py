@@ -172,7 +172,7 @@ class LumaBridgeOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         """Choose pairing or the tile list."""
-        return self.async_show_menu(step_id="init", menu_options=["pair", "tiles"])
+        return self.async_show_menu(step_id="init", menu_options=["pair", "tiles", "doorbell"])
 
     async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> Any:
         """Open the phone scanner. The TV shows the QR code."""
@@ -216,3 +216,35 @@ class LumaBridgeOptionsFlow(OptionsFlow):
         current = dict(self.config_entry.options.get("names", {}))
         schema, self._labels = _names_schema(self.hass, self._entities, current)
         return self.async_show_form(step_id="names", data_schema=schema)
+
+    async def async_step_doorbell(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Which sensor is the gate bell, and which camera should open on the TV."""
+        if user_input is not None:
+            options = dict(self.config_entry.options)
+            options["doorbell"] = str(user_input.get("doorbell") or "")
+            options["doorbell_camera"] = str(user_input.get("doorbell_camera") or "")
+            return self.async_create_entry(data=options)
+        bell = str(self.config_entry.options.get("doorbell") or "")
+        camera = str(self.config_entry.options.get("doorbell_camera") or "")
+        bell_field = vol.Optional("doorbell")
+        camera_field = vol.Optional("doorbell_camera")
+        if bell:
+            bell_field = vol.Optional("doorbell", description={"suggested_value": bell})
+        if camera:
+            camera_field = vol.Optional("doorbell_camera", description={"suggested_value": camera})
+        return self.async_show_form(
+            step_id="doorbell",
+            data_schema=vol.Schema(
+                {
+                    bell_field: selector(
+                        {
+                            "entity": {
+                                "multiple": False,
+                                "domain": ["binary_sensor", "event", "button"],
+                            }
+                        }
+                    ),
+                    camera_field: selector({"entity": {"multiple": False, "domain": "camera"}}),
+                }
+            ),
+        )

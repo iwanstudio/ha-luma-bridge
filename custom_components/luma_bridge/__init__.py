@@ -14,6 +14,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
 from .const import ACTION, DOMAIN
@@ -39,7 +40,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(LumaScanView())
         hass.http.register_view(LumaAdoptView())
         hass.http.register_view(LumaScriptView())
+        hass.http.register_view(LumaSnapshotView())
+        hass.http.register_view(LumaAlertView())
         bucket["views"] = True
+    unsub = _listen_doorbell(hass, entry)
+    if unsub is not None:
+        entry.async_on_unload(unsub)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -249,6 +255,8 @@ class LumaPressView(HomeAssistantView):
         if entity_id not in allowed:
             return self.json_message("entity is not on the Luma board", status_code=404)
         domain = entity_id.split(".", 1)[0]
+        if domain == "camera":
+            return self.json({"ok": True, "tile": _tile(hass, entity_id, entry.options.get("names", {}))})
         service = ACTION.get(domain)
         if service is None:
             return self.json_message("domain is not supported", status_code=400)
@@ -373,3 +381,93 @@ class LumaAdoptView(HomeAssistantView):
         except Exception:
             return self.json({"ok": True, "dialog": False})
         return self.json({"ok": True})
+
+
+def _is_ring(old, new) -> bool:
+    """A doorbell press, not the sensor going quiet again."""
+    if new is None or new.state in ("unknown", "unavailable", ""):
+        return False
+    domain = new.entity_id.split(".", 1)[0]
+    if domain == "binary_sensor":
+        return new.state == "on" and (old is None or old.state != "on")
+    return old is None or old.state != new.state
+
+
+def _listen_doorbell(hass: HomeAssistant, entry: ConfigEntry):
+    """Remember a ring so the television can open the gate camera."""
+    doorbell = str(entry.options.get("doorbell") or "")
+    camera = str(entry.options.get("doorbell_camera") or "")
+    if not doorbell or not camera:
+        return None
+
+    async def _changed(event) -> None:
+        new = event.data.get("new_state")
+        old = event.data.get("old_state")
+        if not _is_ring(old, new):
+            return
+        hass.data[DOMAIN]["ring"] = {
+            "id": int(time.time() * 1000),
+            "camera": camera,
+            "title": "Ktoś dzwoni",
+            "at": time.time(),
+            "entry_id": entry.entry_id,
+        }
+
+    return async_track_state_change_event(hass, [doorbell], _changed)
+
+
+def _allowed_camera(entry: ConfigEntry, entity_id: str) -> bool:
+    if entity_id == str(entry.options.get("doorbell_camera") or ""):
+        return True
+    return entity_id in set(entry.options.get("entities", []))
+
+
+class LumaSnapshotView(HomeAssistantView):
+    """One camera frame for a tile or the live preview."""
+
+    url = "/api/luma_bridge/snapshot/{entity_id:.+}"
+    name = "api:luma_bridge:snapshot"
+    requires_auth = False
+
+    async def get(self, request: web.Request, entity_id: str) -> web.Response:
+        """Return the current JPEG from a camera the TV is allowed to see."""
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        if not entity_id.startswith("camera.") or not _allowed_camera(entry, entity_id):
+            return self.json_message("camera is not on the Luma board", status_code=404)
+        try:
+            from homeassistant.components.camera import async_get_image
+
+            image = await async_get_image(hass, entity_id, timeout=8)
+        except Exception:
+            return self.json_message("no image", status_code=404)
+        content_type = getattr(image, "content_type", None) or "image/jpeg"
+        return web.Response(body=image.content, content_type=content_type)
+
+
+class LumaAlertView(HomeAssistantView):
+    """The latest doorbell ring, if it is still fresh."""
+
+    url = "/api/luma_bridge/alert"
+    name = "api:luma_bridge:alert"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Return the gate camera while the ring is less than 90 seconds old."""
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        ring = hass.data[DOMAIN].get("ring")
+        fresh = (
+            isinstance(ring, dict)
+            and ring.get("entry_id") == entry.entry_id
+            and time.time() - float(ring.get("at", 0)) < 90
+        )
+        if not fresh:
+            return self.json({"id": 0, "camera": "", "title": ""})
+        return self.json(
+            {"id": ring["id"], "camera": ring["camera"], "title": ring["title"]}
+        )

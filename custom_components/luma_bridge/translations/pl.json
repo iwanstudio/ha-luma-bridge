@@ -30,7 +30,16 @@
         "description": "Połącz telewizor kodem QR albo zmień kafelki.",
         "menu_options": {
           "pair": "Połącz telewizor kodem QR",
-          "tiles": "Kafelki i nazwy"
+          "tiles": "Kafelki i nazwy",
+          "doorbell": "Dzwonek i kamera"
+        }
+      },
+      "doorbell": {
+        "title": "Dzwonek",
+        "description": "Kiedy ten czujnik się włączy, telewizor otworzy kamerę. Zostaw puste, żeby wyłączyć.",
+        "data": {
+          "doorbell": "Dzwonek",
+          "doorbell_camera": "Kamera"
         }
       },
       "pair": {

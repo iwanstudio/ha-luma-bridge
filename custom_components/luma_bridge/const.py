@@ -8,6 +8,7 @@ DOMAINS = [
     "fan",
     "input_boolean",
     "cover",
+    "camera",
     "scene",
     "script",
     "button",

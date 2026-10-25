@@ -30,7 +30,16 @@
         "description": "Pair the TV with the QR code, or change the tiles.",
         "menu_options": {
           "pair": "Pair the TV with a QR code",
-          "tiles": "Tiles and names"
+          "tiles": "Tiles and names",
+          "doorbell": "Doorbell and camera"
+        }
+      },
+      "doorbell": {
+        "title": "Doorbell",
+        "description": "When this sensor turns on, the TV opens the camera. Leave both empty to disable it.",
+        "data": {
+          "doorbell": "Doorbell",
+          "doorbell_camera": "Camera"
         }
       },
       "pair": {
