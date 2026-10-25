@@ -7,10 +7,12 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN, DOMAINS
+
+NAME_LIMIT = 40
 
 
 def _code() -> str:
@@ -34,6 +36,48 @@ def _entity_schema(default: list[str]) -> vol.Schema:
     )
 
 
+def _field_label(entity_id: str, friendly: str) -> str:
+    """A form label without dots. The frontend treats dots as nested fields."""
+    base = friendly.strip().replace(".", " ") if friendly.strip() else entity_id.replace(".", " ")
+    ident = entity_id.replace(".", " ")
+    if ident.casefold() in base.casefold():
+        return base
+    return f"{base} — {ident}"
+
+
+def _names_schema(
+    hass: HomeAssistant, entities: list[str], current: dict[str, str]
+) -> tuple[vol.Schema, dict[str, str]]:
+    """One text field per entity. The value is the name shown on the TV."""
+    labels: dict[str, str] = {}
+    used: set[str] = set()
+    fields: dict[Any, Any] = {}
+    for entity_id in entities:
+        state = hass.states.get(entity_id)
+        friendly = ""
+        if state is not None:
+            friendly = str(state.attributes.get("friendly_name") or "")
+        label = _field_label(entity_id, friendly)
+        if label in used:
+            label = f"{label} {len(used) + 1}"
+        used.add(label)
+        labels[label] = entity_id
+        saved = str(current.get(entity_id, "")).strip()
+        fields[
+            vol.Optional(label, description={"suggested_value": saved or friendly or entity_id})
+        ] = selector({"text": {}})
+    return vol.Schema(fields), labels
+
+
+def _collect_names(user_input: dict[str, Any], labels: dict[str, str]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for label, entity_id in labels.items():
+        value = str(user_input.get(label, "")).strip()
+        if value:
+            names[entity_id] = value[:NAME_LIMIT]
+    return names
+
+
 class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
     """One bridge per Home Assistant. The TV stores only the address and the code."""
 
@@ -41,6 +85,8 @@ class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._entities: list[str] = []
+        self._labels: dict[str, str] = {}
+        self._names: dict[str, str] = {}
         self._token = ""
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
@@ -49,9 +95,20 @@ class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
             self._entities = list(user_input["entities"])
+            if not self._entities:
+                self._token = _code()
+                return await self.async_step_token()
+            return await self.async_step_names()
+        return self.async_show_form(step_id="user", data_schema=_entity_schema([]))
+
+    async def async_step_names(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Let each tile have the same name as on the wall tablet, not the system name."""
+        if user_input is not None:
+            self._names = _collect_names(user_input, self._labels)
             self._token = _code()
             return await self.async_step_token()
-        return self.async_show_form(step_id="user", data_schema=_entity_schema([]))
+        schema, self._labels = _names_schema(self.hass, self._entities, {})
+        return self.async_show_form(step_id="names", data_schema=schema)
 
     async def async_step_token(self, user_input: dict[str, Any] | None = None) -> Any:
         """Show the code once. It stays available later in the options."""
@@ -59,7 +116,7 @@ class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title="Luma",
                 data={"token": self._token},
-                options={"entities": self._entities},
+                options={"entities": self._entities, "names": self._names},
             )
         return self.async_show_form(
             step_id="token",
@@ -75,15 +132,32 @@ class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class LumaBridgeOptionsFlow(OptionsFlow):
-    """Edit the entities. The code is shown again so it can be retyped."""
+    """Edit the entities and their TV names. The code stays the same."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._entities: list[str] = []
+        self._labels: dict[str, str] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
-        """Save a new entity list."""
+        """Choose the entities, then their names on the next screen."""
         if user_input is not None:
-            return self.async_create_entry(data={"entities": list(user_input["entities"])})
+            self._entities = list(user_input["entities"])
+            if not self._entities:
+                return self.async_create_entry(data={"entities": [], "names": {}})
+            return await self.async_step_names()
         current = list(self.config_entry.options.get("entities", []))
         return self.async_show_form(
             step_id="init",
             data_schema=_entity_schema(current),
             description_placeholders={"token": str(self.config_entry.data.get("token", ""))},
         )
+
+    async def async_step_names(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Save a display name for every selected entity."""
+        if user_input is not None:
+            names = _collect_names(user_input, self._labels)
+            return self.async_create_entry(data={"entities": self._entities, "names": names})
+        current = dict(self.config_entry.options.get("names", {}))
+        schema, self._labels = _names_schema(self.hass, self._entities, current)
+        return self.async_show_form(step_id="names", data_schema=schema)
