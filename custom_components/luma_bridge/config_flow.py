@@ -80,6 +80,35 @@ def _collect_names(user_input: dict[str, Any], labels: dict[str, str]) -> dict[s
     return names
 
 
+def _lan_url(hass: HomeAssistant) -> str:
+    """Address the television can reach on the home network."""
+    try:
+        return get_url(
+            hass,
+            allow_external=False,
+            allow_cloud=False,
+            allow_ip=True,
+        ).rstrip("/")
+    except NoURLAvailableError:
+        return str(getattr(hass.config, "internal_url", "") or "").rstrip("/")
+
+
+def _https_url(hass: HomeAssistant) -> str:
+    """Page for the phone. Camera access needs HTTPS when SSL is enabled."""
+    try:
+        return get_url(
+            hass,
+            require_ssl=True,
+            allow_external=True,
+            allow_cloud=True,
+        ).rstrip("/")
+    except NoURLAvailableError:
+        external = str(getattr(hass.config, "external_url", "") or "").rstrip("/")
+        if external.startswith("https://"):
+            return external
+        return ""
+
+
 class LumaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
     """One bridge per Home Assistant. The TV stores only the address and the code."""
 
@@ -152,24 +181,17 @@ class LumaBridgeOptionsFlow(OptionsFlow):
                 return self.async_abort(reason="paired")
             return self.async_abort(reason="pair_failed")
         session = secrets.token_urlsafe(18)
-        try:
-            ha_url = get_url(
-                self.hass,
-                allow_external=False,
-                allow_cloud=False,
-                allow_ip=True,
-            ).rstrip("/")
-        except NoURLAvailableError:
-            ha_url = str(getattr(self.hass.config, "internal_url", "") or "").rstrip("/")
+        lan = _lan_url(self.hass)
+        page = _https_url(self.hass) or lan
         self.hass.data[DOMAIN].setdefault("scans", {})[session] = {
             "flow_id": self.flow_id,
             "entry_id": self.config_entry.entry_id,
-            "ha_url": ha_url,
+            "ha_url": lan or page,
             "expires": time.monotonic() + 300,
         }
         return self.async_external_step(
             step_id="pair",
-            url=f"{ha_url}/api/luma_bridge/scan?session={session}",
+            url=f"{page}/api/luma_bridge/scan?session={session}",
         )
 
     async def async_step_tiles(self, user_input: dict[str, Any] | None = None) -> Any:
