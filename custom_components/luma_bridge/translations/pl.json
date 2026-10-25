@@ -8,6 +8,10 @@
           "entities": "Encje"
         }
       },
+      "names": {
+        "title": "Nazwy na telewizorze",
+        "description": "Wpisz nazwę, którą chcesz widzieć na telewizorze, taką jak na tablecie. Nazwa w Home Assistant się nie zmieni. Zostaw pole bez zmian, żeby użyć nazwy systemowej. Do 40 znaków."
+      },
       "token": {
         "title": "Kod dla telewizora",
         "description": "W Lumie wpisz adres tego Home Assistanta i ten kod:\n\n{token}\n\nKod zostaje w tej integracji. Można go podejrzeć w opcjach."
@@ -21,10 +25,14 @@
     "step": {
       "init": {
         "title": "Kafelki Luma",
-        "description": "Kod telewizora: {token}",
+        "description": "Kod telewizora: {token}. Na następnym ekranie ustawisz nazwę widoczną na telewizorze.",
         "data": {
           "entities": "Encje"
         }
+      },
+      "names": {
+        "title": "Nazwy na telewizorze",
+        "description": "Wpisz nazwę na telewizor. Nazwa w Home Assistant zostaje bez zmian."
       }
     }
   }

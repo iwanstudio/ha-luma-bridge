@@ -8,6 +8,10 @@
           "entities": "Entities"
         }
       },
+      "names": {
+        "title": "Names on the TV",
+        "description": "Type the name you want on the television, the same one you use on the tablet. Home Assistant keeps its own name. Leave a field as-is to use the system name. 40 characters."
+      },
       "token": {
         "title": "Code for the TV",
         "description": "In Luma, enter this Home Assistant address and this code:\n\n{token}\n\nThe code stays in this integration. Open the integration options to see it again."
@@ -21,10 +25,14 @@
     "step": {
       "init": {
         "title": "Luma tiles",
-        "description": "TV code: {token}",
+        "description": "TV code: {token}. On the next screen you set the name shown on the TV.",
         "data": {
           "entities": "Entities"
         }
+      },
+      "names": {
+        "title": "Names on the TV",
+        "description": "Type the name for the television. The Home Assistant name does not change."
       }
     }
   }
