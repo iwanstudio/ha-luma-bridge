@@ -41,6 +41,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(LumaAdoptView())
         hass.http.register_view(LumaScriptView())
         hass.http.register_view(LumaSnapshotView())
+        hass.http.register_view(LumaStreamView())
         hass.http.register_view(LumaAlertView())
         bucket["views"] = True
     unsub = _listen_doorbell(hass, entry)
@@ -443,6 +444,41 @@ class LumaSnapshotView(HomeAssistantView):
             return self.json_message("no image", status_code=404)
         body, content_type = image
         return web.Response(body=body, content_type=content_type)
+
+
+class LumaStreamView(HomeAssistantView):
+    """MJPEG for the camera that is open on the television."""
+
+    url = "/api/luma_bridge/stream"
+    name = "api:luma_bridge:stream"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.StreamResponse:
+        """Hand the camera's own motion JPEG stream to the TV."""
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        entity_id = request.query.get("entity_id", "")
+        if not entity_id.startswith("camera.") or not _allowed_camera(entry, entity_id):
+            return self.json_message("camera is not on the Luma board", status_code=404)
+        camera = _camera_entity(hass, entity_id)
+        opener = getattr(camera, "handle_async_mjpeg_stream", None)
+        if opener is None:
+            return self.json_message("no stream", status_code=404)
+        stream = await opener(request)
+        if stream is None:
+            return self.json_message("no stream", status_code=404)
+        return stream
+
+
+def _camera_entity(hass: HomeAssistant, entity_id: str):
+    """The camera object, when the camera integration has loaded it."""
+    component = hass.data.get("camera")
+    getter = getattr(component, "get_entity", None)
+    if getter is None:
+        return None
+    return getter(entity_id)
 
 
 async def _camera_bytes(hass: HomeAssistant, entity_id: str) -> tuple[bytes, str] | None:
