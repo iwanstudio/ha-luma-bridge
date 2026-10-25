@@ -72,7 +72,25 @@ def _entry_for_request(hass: HomeAssistant, request: web.Request) -> ConfigEntry
     return None
 
 
-def _tile(hass: HomeAssistant, entity_id: str, names: dict[str, str]) -> dict[str, str]:
+COLOR_MODES = {"hs", "xy", "rgb", "rgbw", "rgbww"}
+
+
+def _rgb(state) -> list[int] | None:
+    """The color a bulb is showing, not a leftover value from when it was off."""
+    if state is None or state.state not in ("on", "open"):
+        return None
+    if str(state.attributes.get("color_mode") or "") not in COLOR_MODES:
+        return None
+    rgb = state.attributes.get("rgb_color")
+    if not isinstance(rgb, (list, tuple)) or len(rgb) < 3:
+        return None
+    try:
+        return [max(0, min(255, int(channel))) for channel in list(rgb)[:3]]
+    except (TypeError, ValueError):
+        return None
+
+
+def _tile(hass: HomeAssistant, entity_id: str, names: dict[str, str]) -> dict:
     domain = entity_id.split(".", 1)[0]
     state = hass.states.get(entity_id)
     custom = str(names.get(entity_id, "")).strip()
@@ -82,13 +100,17 @@ def _tile(hass: HomeAssistant, entity_id: str, names: dict[str, str]) -> dict[st
         if not custom:
             name = str(state.attributes.get("friendly_name") or entity_id)
         current = state.state
-    return {
+    tile = {
         "entity_id": entity_id,
         "name": name,
         "domain": domain,
         "state": current,
         "action": ACTION.get(domain, "toggle"),
     }
+    rgb = _rgb(state)
+    if rgb is not None:
+        tile["rgb"] = rgb
+    return tile
 
 
 class LumaTilesView(HomeAssistantView):
@@ -138,7 +160,7 @@ class LumaPressView(HomeAssistantView):
             domain,
             service,
             {"entity_id": entity_id},
-            blocking=False,
+            blocking=True,
         )
         return self.json({"ok": True, "tile": _tile(hass, entity_id, entry.options.get("names", {}))})
 
