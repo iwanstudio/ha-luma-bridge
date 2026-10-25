@@ -9,25 +9,30 @@
   main { max-width: 28rem; margin: 0 auto; padding: 1.25rem; }
   h1 { font-size: 1.35rem; font-weight: 600; }
   p { color: #c8c8c8; line-height: 1.4; }
-  video, canvas { width: 100%; border-radius: 12px; background: #000; }
-  label { display: block; margin-top: 1rem; font-size: .9rem; }
-  input { width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .7rem; border-radius: 10px; border: 0; font-size: 1rem; }
-  button { margin-top: 1rem; width: 100%; padding: .85rem; border: 0; border-radius: 12px; background: #f2f2f2; color: #161616; font-size: 1rem; font-weight: 600; }
+  video, canvas, img.preview { width: 100%; border-radius: 12px; background: #000; }
+  label, .file { display: block; margin-top: 1rem; font-size: .9rem; }
+  input[type="text"] { width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .7rem; border-radius: 10px; border: 0; font-size: 1rem; }
+  button, .file span { display: block; margin-top: 1rem; width: 100%; box-sizing: border-box; padding: .85rem; border: 0; border-radius: 12px; background: #f2f2f2; color: #161616; font-size: 1rem; font-weight: 600; text-align: center; }
+  button.secondary, .file span { background: #2a2e33; color: #f2f2f2; }
   button:disabled { opacity: .45; }
+  input[type="file"] { display: none; }
   #status { min-height: 1.4rem; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Skieruj aparat na telewizor</h1>
-  <p>Na telewizorze ma być włączony kod QR z Lumy: Ustawienia, Home Assistant, Kod QR.</p>
-  <video id="video" autoplay playsinline muted></video>
+  <h1>Połącz telewizor</h1>
+  <p>Na telewizorze włącz kod QR: Ustawienia, Home Assistant, Kod QR.</p>
+  <p id="limit" hidden>Ta strona jest po zwykłym http, więc przeglądarka nie odda aparatu na żywo. Zrób zdjęcie kodu. Telefon otworzy aparat normalnie.</p>
+  <button id="cam" class="secondary" type="button">Włącz aparat</button>
+  <video id="video" autoplay playsinline muted hidden></video>
+  <label class="file"><input id="photo" type="file" accept="image/*" capture="environment"><span>Zrób zdjęcie kodu</span></label>
   <canvas id="frame" hidden></canvas>
   <p id="found" hidden></p>
   <label>Adres Home Assistant, widoczny dla telewizora
-    <input id="url" autocomplete="off">
+    <input id="url" type="text" autocomplete="off">
   </label>
-  <button id="go" disabled>Połącz</button>
+  <button id="go" type="button" disabled>Połącz</button>
   <p id="status"></p>
 </main>
 <script id="cfg" type="application/json">__CONFIG__</script>
@@ -40,9 +45,17 @@ const url = document.getElementById("url");
 const go = document.getElementById("go");
 const status = document.getElementById("status");
 const found = document.getElementById("found");
+const cam = document.getElementById("cam");
+const photo = document.getElementById("photo");
+const limit = document.getElementById("limit");
 url.value = cfg.url || "";
 let claim = null;
 let running = true;
+const secure = window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+if (!secure) {
+  limit.hidden = false;
+  cam.hidden = true;
+}
 
 function parseCode(text) {
   const parts = (text || "").trim().split("|");
@@ -60,29 +73,71 @@ function show(code) {
   status.textContent = "Sprawdź adres i naciśnij Połącz.";
 }
 
+function decodeCanvas() {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (!window.jsQR) return null;
+  const result = jsQR(image.data, image.width, image.height, { inversionAttempts: "attemptBoth" });
+  return result && parseCode(result.data);
+}
+
 async function scan() {
-  if (!running) return;
+  if (!running || video.hidden) return;
   try {
-    if ("BarcodeDetector" in window) {
+    if ("BarcodeDetector" in window && video.videoWidth) {
       const detector = new BarcodeDetector({ formats: ["qr_code"] });
       const codes = await detector.detect(video);
       if (codes.length) {
         const parsed = parseCode(codes[0].rawValue);
         if (parsed) { show(parsed); return; }
       }
-    } else if (window.jsQR && video.videoWidth) {
+    }
+    if (window.jsQR && video.videoWidth) {
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0);
-      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const result = jsQR(image.data, image.width, image.height);
-      const parsed = result && parseCode(result.data);
+      const parsed = decodeCanvas();
       if (parsed) { show(parsed); return; }
     }
   } catch (error) {}
   setTimeout(scan, 250);
 }
+
+cam.onclick = async () => {
+  status.textContent = "Proszę o aparat…";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false
+    });
+    video.hidden = false;
+    video.srcObject = stream;
+    video.onloadedmetadata = () => scan();
+    status.textContent = "Skieruj aparat na kod na telewizorze.";
+  } catch (error) {
+    limit.hidden = false;
+    status.textContent = "Przeglądarka nie dała aparatu. Zrób zdjęcie kodu.";
+  }
+};
+
+photo.onchange = () => {
+  const file = photo.files && photo.files[0];
+  if (!file) return;
+  status.textContent = "Czytam zdjęcie…";
+  const image = new Image();
+  image.onload = () => {
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext("2d").drawImage(image, 0, 0);
+    const parsed = decodeCanvas();
+    if (parsed) show(parsed);
+    else status.textContent = "Na zdjęciu nie ma kodu. Zrób je bliżej, prosto w ekran.";
+    URL.revokeObjectURL(image.src);
+  };
+  image.onerror = () => { status.textContent = "Nie da się odczytać tego zdjęcia."; };
+  image.src = URL.createObjectURL(file);
+};
 
 go.onclick = async () => {
   if (!claim) return;
@@ -115,10 +170,6 @@ go.onclick = async () => {
     go.disabled = false;
   }
 };
-
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
-  .then((stream) => { video.srcObject = stream; video.onloadedmetadata = () => scan(); })
-  .catch(() => { status.textContent = "Przeglądarka nie dała dostępu do aparatu."; });
 </script>
 </body>
 </html>
