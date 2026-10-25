@@ -14,16 +14,30 @@
       },
       "token": {
         "title": "Kod dla telewizora",
-        "description": "W Lumie wpisz adres tego Home Assistanta i ten kod:\n\n{token}\n\nKod zostaje w tej integracji. Można go podejrzeć w opcjach."
+        "description": "Ten kod można wpisać w Lumie ręcznie albo połączyć telewizor kodem QR z opcji tej integracji.\n\n{token}"
       }
     },
     "abort": {
-      "single_instance_allowed": "Luma Bridge jest już dodana."
+      "single_instance_allowed": "Luma Bridge jest już dodana.",
+      "paired": "Telewizor połączony. Kafelki pojawią się na ekranie głównym Lumy.",
+      "pair_failed": "Telewizor się nie połączył."
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "Luma",
+        "description": "Połącz telewizor kodem QR albo zmień kafelki.",
+        "menu_options": {
+          "pair": "Połącz telewizor kodem QR",
+          "tiles": "Kafelki i nazwy"
+        }
+      },
+      "pair": {
+        "title": "Połącz telewizor",
+        "description": "Na telewizorze: Ustawienia, Home Assistant, Kod QR. Potem otwórz tę stronę w telefonie i skieruj aparat na telewizor."
+      },
+      "tiles": {
         "title": "Kafelki Luma",
         "description": "Kod telewizora: {token}. Na następnym ekranie ustawisz nazwę widoczną na telewizorze.",
         "data": {
@@ -34,6 +48,10 @@
         "title": "Nazwy na telewizorze",
         "description": "Wpisz nazwę na telewizor. Nazwa w Home Assistant zostaje bez zmian."
       }
+    },
+    "abort": {
+      "paired": "Telewizor połączony. Kafelki pojawią się na ekranie głównym Lumy.",
+      "pair_failed": "Telewizor się nie połączył."
     }
   }
 }

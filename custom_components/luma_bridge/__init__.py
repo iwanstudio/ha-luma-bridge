@@ -3,19 +3,28 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
+import json
+import time
+from pathlib import Path
 
-from aiohttp import web
+from aiohttp import ClientError, ClientTimeout, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .const import ACTION, DOMAIN
 
+HERE = Path(__file__).parent
+SCAN_HTML = (HERE / "scan.html").read_text(encoding="utf-8")
+JSQR = (HERE / "jsqr.min.js").read_bytes()
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the integration schema. Config entries do the real work."""
-    hass.data.setdefault(DOMAIN, {"entries": {}, "views": False})
+    hass.data.setdefault(DOMAIN, {"entries": {}, "views": False, "scans": {}})
     return True
 
 
@@ -26,6 +35,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not bucket["views"]:
         hass.http.register_view(LumaTilesView())
         hass.http.register_view(LumaPressView())
+        hass.http.register_view(LumaScanView())
+        hass.http.register_view(LumaAdoptView())
+        hass.http.register_view(LumaScriptView())
         bucket["views"] = True
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
@@ -129,3 +141,117 @@ class LumaPressView(HomeAssistantView):
             blocking=False,
         )
         return self.json({"ok": True, "tile": _tile(hass, entity_id, entry.options.get("names", {}))})
+
+
+def _private_host(host: str) -> bool:
+    """Only talk to an address on the home network."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private and not ip.is_loopback and not ip.is_unspecified
+
+
+def _scan(hass: HomeAssistant, session: str) -> dict | None:
+    pending = hass.data[DOMAIN]["scans"].get(session)
+    if not pending or pending["expires"] < time.monotonic():
+        hass.data[DOMAIN]["scans"].pop(session, None)
+        return None
+    return pending
+
+
+class LumaScanView(HomeAssistantView):
+    """Phone page that reads the QR code shown on the TV."""
+
+    url = "/api/luma_bridge/scan"
+    name = "api:luma_bridge:scan"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Serve the scanner. The session comes from the integration options."""
+        hass: HomeAssistant = request.app["hass"]
+        session = request.query.get("session", "")
+        pending = _scan(hass, session)
+        if pending is None:
+            return web.Response(
+                text="Ten kod wygasł. W Home Assistant otwórz parowanie jeszcze raz.",
+                content_type="text/plain",
+                charset="utf-8",
+            )
+        blob = json.dumps({"session": session, "url": pending["ha_url"]}).replace("<", "\\u003c")
+        return web.Response(
+            text=SCAN_HTML.replace("__CONFIG__", blob),
+            content_type="text/html",
+            charset="utf-8",
+        )
+
+
+class LumaScriptView(HomeAssistantView):
+    """QR decoder used when the phone has no BarcodeDetector."""
+
+    url = "/api/luma_bridge/jsqr.min.js"
+    name = "api:luma_bridge:jsqr"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Return the bundled decoder."""
+        return web.Response(body=JSQR, content_type="text/javascript", charset="utf-8")
+
+
+class LumaAdoptView(HomeAssistantView):
+    """Push this Home Assistant's address and code to the TV that showed the QR."""
+
+    url = "/api/luma_bridge/adopt"
+    name = "api:luma_bridge:adopt"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Call the TV, then close the pairing step."""
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except ValueError:
+            return self.json_message("Nieczytelne dane", status_code=400)
+        session = str(body.get("session", ""))
+        pending = _scan(hass, session)
+        if pending is None:
+            return self.json_message("Kod wygasł. Otwórz parowanie jeszcze raz.", status_code=403)
+        host = str(body.get("host", "")).strip()
+        try:
+            port = int(body.get("port", 0))
+        except (TypeError, ValueError):
+            port = 0
+        secret = str(body.get("secret", "")).strip()
+        ha_url = str(body.get("url") or pending["ha_url"]).strip().rstrip("/")
+        if not _private_host(host) or not 1024 <= port <= 65535 or not secret:
+            return self.json_message("Kod z telewizora jest nieprawidłowy.", status_code=400)
+        if not (ha_url.startswith("http://") or ha_url.startswith("https://")) or " " in ha_url:
+            return self.json_message("Adres Home Assistant jest nieprawidłowy.", status_code=400)
+        entry = hass.data[DOMAIN]["entries"].get(pending["entry_id"])
+        if entry is None:
+            return self.json_message("Integracja nie jest już skonfigurowana.", status_code=404)
+        payload = {"secret": secret, "url": ha_url, "token": str(entry.data.get("token", ""))}
+        client = async_get_clientsession(hass)
+        try:
+            async with client.post(
+                f"http://{host}:{port}/pair",
+                json=payload,
+                timeout=ClientTimeout(total=4),
+                allow_redirects=False,
+            ) as response:
+                if response.status != 200:
+                    return self.json_message("Telewizor odrzucił połączenie.", status_code=502)
+                await response.read()
+        except (ClientError, TimeoutError):
+            return self.json_message(
+                "Nie ma połączenia z telewizorem. Telefon i telewizor muszą być w tej samej sieci.",
+                status_code=502,
+            )
+        hass.data[DOMAIN]["scans"].pop(session, None)
+        try:
+            await hass.config_entries.options.async_configure(
+                pending["flow_id"], {"paired": True}
+            )
+        except Exception:
+            return self.json({"ok": True, "dialog": False})
+        return self.json({"ok": True})

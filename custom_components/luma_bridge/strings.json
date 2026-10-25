@@ -14,16 +14,30 @@
       },
       "token": {
         "title": "Code for the TV",
-        "description": "In Luma, enter this Home Assistant address and this code:\n\n{token}\n\nThe code stays in this integration. Open the integration options to see it again."
+        "description": "You can type this code in Luma, or pair with the QR code from the integration options.\n\n{token}"
       }
     },
     "abort": {
-      "single_instance_allowed": "Luma Bridge is already set up."
+      "single_instance_allowed": "Luma Bridge is already set up.",
+      "paired": "The TV is connected. Tiles show up on the Luma home screen.",
+      "pair_failed": "The TV did not connect."
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "Luma",
+        "description": "Pair the TV with the QR code, or change the tiles.",
+        "menu_options": {
+          "pair": "Pair the TV with a QR code",
+          "tiles": "Tiles and names"
+        }
+      },
+      "pair": {
+        "title": "Pair the TV",
+        "description": "On the TV open Settings, Home Assistant, QR code. Then open this page on your phone and point the camera at the TV."
+      },
+      "tiles": {
         "title": "Luma tiles",
         "description": "TV code: {token}. On the next screen you set the name shown on the TV.",
         "data": {
@@ -34,6 +48,10 @@
         "title": "Names on the TV",
         "description": "Type the name for the television. The Home Assistant name does not change."
       }
+    },
+    "abort": {
+      "paired": "The TV is connected. Tiles show up on the Luma home screen.",
+      "pair_failed": "The TV did not connect."
     }
   }
 }

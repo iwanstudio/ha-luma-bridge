@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Połącz telewizor</title>
+<style>
+  body { margin: 0; font-family: sans-serif; background: #121417; color: #f2f2f2; }
+  main { max-width: 28rem; margin: 0 auto; padding: 1.25rem; }
+  h1 { font-size: 1.35rem; font-weight: 600; }
+  p { color: #c8c8c8; line-height: 1.4; }
+  video, canvas { width: 100%; border-radius: 12px; background: #000; }
+  label { display: block; margin-top: 1rem; font-size: .9rem; }
+  input { width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .7rem; border-radius: 10px; border: 0; font-size: 1rem; }
+  button { margin-top: 1rem; width: 100%; padding: .85rem; border: 0; border-radius: 12px; background: #f2f2f2; color: #161616; font-size: 1rem; font-weight: 600; }
+  button:disabled { opacity: .45; }
+  #status { min-height: 1.4rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Skieruj aparat na telewizor</h1>
+  <p>Na telewizorze ma być włączony kod QR z Lumy: Ustawienia, Home Assistant, Kod QR.</p>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="frame" hidden></canvas>
+  <p id="found" hidden></p>
+  <label>Adres Home Assistant, widoczny dla telewizora
+    <input id="url" autocomplete="off">
+  </label>
+  <button id="go" disabled>Połącz</button>
+  <p id="status"></p>
+</main>
+<script id="cfg" type="application/json">__CONFIG__</script>
+<script src="/api/luma_bridge/jsqr.min.js"></script>
+<script>
+const cfg = JSON.parse(document.getElementById("cfg").textContent);
+const video = document.getElementById("video");
+const canvas = document.getElementById("frame");
+const url = document.getElementById("url");
+const go = document.getElementById("go");
+const status = document.getElementById("status");
+const found = document.getElementById("found");
+url.value = cfg.url || "";
+let claim = null;
+let running = true;
+
+function parseCode(text) {
+  const parts = (text || "").trim().split("|");
+  if (parts.length !== 4 || parts[0] !== "L1") return null;
+  const port = Number(parts[2]);
+  if (!parts[1] || !Number.isInteger(port) || port < 1 || port > 65535 || !parts[3]) return null;
+  return { host: parts[1], port, secret: parts[3] };
+}
+
+function show(code) {
+  claim = code;
+  found.hidden = false;
+  found.textContent = "Znaleziono telewizor " + code.host + ".";
+  go.disabled = false;
+  status.textContent = "Sprawdź adres i naciśnij Połącz.";
+}
+
+async function scan() {
+  if (!running) return;
+  try {
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      const codes = await detector.detect(video);
+      if (codes.length) {
+        const parsed = parseCode(codes[0].rawValue);
+        if (parsed) { show(parsed); return; }
+      }
+    } else if (window.jsQR && video.videoWidth) {
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(image.data, image.width, image.height);
+      const parsed = result && parseCode(result.data);
+      if (parsed) { show(parsed); return; }
+    }
+  } catch (error) {}
+  setTimeout(scan, 250);
+}
+
+go.onclick = async () => {
+  if (!claim) return;
+  go.disabled = true;
+  status.textContent = "Łączenie…";
+  try {
+    const response = await fetch("/api/luma_bridge/adopt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session: cfg.session,
+        host: claim.host,
+        port: claim.port,
+        secret: claim.secret,
+        url: url.value.trim()
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      status.textContent = body.message || "Nie udało się połączyć.";
+      go.disabled = false;
+      return;
+    }
+    running = false;
+    status.textContent = "Połączono. Możesz wrócić do Home Assistanta.";
+    const stream = video.srcObject;
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+  } catch (error) {
+    status.textContent = "Nie udało się połączyć.";
+    go.disabled = false;
+  }
+};
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
+  .then((stream) => { video.srcObject = stream; video.onloadedmetadata = () => scan(); })
+  .catch(() => { status.textContent = "Przeglądarka nie dała dostępu do aparatu."; });
+</script>
+</body>
+</html>

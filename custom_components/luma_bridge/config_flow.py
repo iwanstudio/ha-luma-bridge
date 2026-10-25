@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import secrets
+import time
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN, DOMAINS
@@ -140,6 +142,37 @@ class LumaBridgeOptionsFlow(OptionsFlow):
         self._labels: dict[str, str] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Choose pairing or the tile list."""
+        return self.async_show_menu(step_id="init", menu_options=["pair", "tiles"])
+
+    async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Open the phone scanner. The TV shows the QR code."""
+        if user_input is not None:
+            if user_input.get("paired"):
+                return self.async_abort(reason="paired")
+            return self.async_abort(reason="pair_failed")
+        session = secrets.token_urlsafe(18)
+        try:
+            ha_url = get_url(
+                self.hass,
+                allow_external=False,
+                allow_cloud=False,
+                allow_ip=True,
+            ).rstrip("/")
+        except NoURLAvailableError:
+            ha_url = str(getattr(self.hass.config, "internal_url", "") or "").rstrip("/")
+        self.hass.data[DOMAIN].setdefault("scans", {})[session] = {
+            "flow_id": self.flow_id,
+            "entry_id": self.config_entry.entry_id,
+            "ha_url": ha_url,
+            "expires": time.monotonic() + 300,
+        }
+        return self.async_external_step(
+            step_id="pair",
+            url=f"{ha_url}/api/luma_bridge/scan?session={session}",
+        )
+
+    async def async_step_tiles(self, user_input: dict[str, Any] | None = None) -> Any:
         """Choose the entities, then their names on the next screen."""
         if user_input is not None:
             self._entities = list(user_input["entities"])
@@ -148,7 +181,7 @@ class LumaBridgeOptionsFlow(OptionsFlow):
             return await self.async_step_names()
         current = list(self.config_entry.options.get("entities", []))
         return self.async_show_form(
-            step_id="init",
+            step_id="tiles",
             data_schema=_entity_schema(current),
             description_placeholders={"token": str(self.config_entry.data.get("token", ""))},
         )
