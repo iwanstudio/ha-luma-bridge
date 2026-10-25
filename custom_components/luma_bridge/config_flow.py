@@ -240,7 +240,13 @@ class LumaBridgeOptionsFlow(OptionsFlow):
                         {
                             "entity": {
                                 "multiple": False,
-                                "domain": ["binary_sensor", "event", "button"],
+                                "filter": [
+                                    {"domain": "binary_sensor"},
+                                    {"domain": "event"},
+                                    {"domain": "button"},
+                                    {"domain": "sensor"},
+                                    {"domain": "switch"},
+                                ],
                             }
                         }
                     ),

@@ -35,11 +35,15 @@
         }
       },
       "doorbell": {
-        "title": "Doorbell",
-        "description": "When this sensor turns on, the TV opens the camera. Leave both empty to disable it.",
+        "title": "Doorbell and camera",
+        "description": "Pick the gate button and the camera. When someone rings, the TV opens that picture. Submit with both fields empty to turn this off.",
         "data": {
-          "doorbell": "Doorbell",
-          "doorbell_camera": "Camera"
+          "doorbell": "Doorbell button",
+          "doorbell_camera": "Gate camera"
+        },
+        "data_description": {
+          "doorbell": "The sensor or button that turns on when someone presses the gate bell.",
+          "doorbell_camera": "The camera whose picture should open on the television."
         }
       },
       "pair": {

@@ -35,11 +35,15 @@
         }
       },
       "doorbell": {
-        "title": "Dzwonek",
-        "description": "Kiedy ten czujnik się włączy, telewizor otworzy kamerę. Zostaw puste, żeby wyłączyć.",
+        "title": "Dzwonek i kamera",
+        "description": "Wybierz przycisk przy furtce i kamerę. Kiedy ktoś zadzwoni, telewizor otworzy ten obraz. Zostaw oba pola puste i zapisz, żeby to wyłączyć.",
         "data": {
-          "doorbell": "Dzwonek",
-          "doorbell_camera": "Kamera"
+          "doorbell": "Przycisk dzwonka",
+          "doorbell_camera": "Kamera furtki"
+        },
+        "data_description": {
+          "doorbell": "Czujnik albo przycisk, który włącza się, kiedy ktoś naciśnie dzwonek.",
+          "doorbell_camera": "Kamera, której obraz ma się otworzyć na telewizorze."
         }
       },
       "pair": {
