@@ -7,5 +7,5 @@
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/iwanstudio/ha-luma-bridge/issues",
-  "version": "0.2.3"
+  "version": "0.2.4"
 }

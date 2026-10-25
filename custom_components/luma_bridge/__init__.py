@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import math
 import time
 from pathlib import Path
 
@@ -72,22 +73,117 @@ def _entry_for_request(hass: HomeAssistant, request: web.Request) -> ConfigEntry
     return None
 
 
-COLOR_MODES = {"hs", "xy", "rgb", "rgbw", "rgbww"}
+PLAIN_MODES = {"onoff", "brightness", "white"}
+
+
+def _channels(value) -> list[float] | None:
+    """Read a color attribute whether HA stored ints or floats."""
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        return [float(part) for part in list(value)[:3]]
+    except (TypeError, ValueError):
+        return None
+
+
+def _visible(rgb: list[int]) -> list[int]:
+    """Keep the hue, but lift a very dark color so the button still shows it."""
+    peak = max(rgb)
+    if peak == 0 or peak >= 180:
+        return rgb
+    scale = 180 / peak
+    return [min(255, int(round(channel * scale))) for channel in rgb]
+
+
+def _hs_to_rgb(hs: list[float]) -> list[int]:
+    hue = hs[0] % 360
+    saturation = hs[1] / 100 if hs[1] > 1 else hs[1]
+    saturation = max(0.0, min(1.0, saturation))
+    sector = hue / 60
+    chroma = saturation
+    mix = chroma * (1 - abs(sector % 2 - 1))
+    red = green = blue = 0.0
+    if sector < 1:
+        red, green = chroma, mix
+    elif sector < 2:
+        red, green = mix, chroma
+    elif sector < 3:
+        green, blue = chroma, mix
+    elif sector < 4:
+        green, blue = mix, chroma
+    elif sector < 5:
+        red, blue = mix, chroma
+    else:
+        red, blue = chroma, mix
+    offset = 1 - chroma
+    return [int(round((channel + offset) * 255)) for channel in (red, green, blue)]
+
+
+def _xy_to_rgb(xy: list[float]) -> list[int] | None:
+    x, y = xy[0], xy[1]
+    if y <= 0.0001:
+        return None
+    big_y = 1.0
+    big_x = big_y / y * x
+    big_z = big_y / y * (1 - x - y)
+
+    def correct(channel: float) -> int:
+        channel = max(0.0, channel)
+        if channel <= 0.0031308:
+            channel = 12.92 * channel
+        else:
+            channel = 1.055 * (channel ** (1 / 2.4)) - 0.055
+        return max(0, min(255, int(round(channel * 255))))
+
+    return [
+        correct(3.2406 * big_x - 1.5372 * big_y - 0.4986 * big_z),
+        correct(-0.9689 * big_x + 1.8758 * big_y + 0.0415 * big_z),
+        correct(0.0557 * big_x - 0.2040 * big_y + 1.0570 * big_z),
+    ]
+
+
+def _kelvin_to_rgb(kelvin: float) -> list[int]:
+    temperature = max(1000.0, min(40000.0, kelvin)) / 100
+    if temperature <= 66:
+        red = 255.0
+        green = 99.4708025861 * math.log(temperature) - 161.1195681661
+    else:
+        red = 329.698727446 * ((temperature - 60) ** -0.1332047592)
+        green = 288.1221695283 * ((temperature - 60) ** -0.0755148492)
+    if temperature >= 66:
+        blue = 255.0
+    elif temperature <= 19:
+        blue = 0.0
+    else:
+        blue = 138.5177312231 * math.log(temperature - 10) - 305.0447927307
+    return [max(0, min(255, int(round(channel)))) for channel in (red, green, blue)]
 
 
 def _rgb(state) -> list[int] | None:
-    """The color a bulb is showing, not a leftover value from when it was off."""
+    """The color the bulb is showing. A plain lamp stays unset, so the TV uses yellow."""
     if state is None or state.state not in ("on", "open"):
         return None
-    if str(state.attributes.get("color_mode") or "") not in COLOR_MODES:
+    mode = str(state.attributes.get("color_mode") or "").casefold()
+    if mode in PLAIN_MODES:
         return None
-    rgb = state.attributes.get("rgb_color")
-    if not isinstance(rgb, (list, tuple)) or len(rgb) < 3:
-        return None
+    rgb = _channels(state.attributes.get("rgb_color"))
+    if rgb is not None and len(rgb) >= 3:
+        return _visible([max(0, min(255, int(round(channel)))) for channel in rgb])
+    hs = _channels(state.attributes.get("hs_color"))
+    if hs is not None:
+        return _visible(_hs_to_rgb(hs))
+    xy = _channels(state.attributes.get("xy_color"))
+    if xy is not None and len(xy) >= 2:
+        converted = _xy_to_rgb(xy)
+        if converted is not None:
+            return _visible(converted)
+    mired = state.attributes.get("color_temp")
     try:
-        return [max(0, min(255, int(channel))) for channel in list(rgb)[:3]]
-    except (TypeError, ValueError):
+        if mired is not None and mode in {"", "color_temp"}:
+            return _visible(_kelvin_to_rgb(1_000_000 / float(mired)))
+    except (TypeError, ValueError, ZeroDivisionError):
         return None
+    return None
 
 
 def _tile(hass: HomeAssistant, entity_id: str, names: dict[str, str]) -> dict:
