@@ -425,26 +425,48 @@ def _allowed_camera(entry: ConfigEntry, entity_id: str) -> bool:
 class LumaSnapshotView(HomeAssistantView):
     """One camera frame for a tile or the live preview."""
 
-    url = "/api/luma_bridge/snapshot/{entity_id:.+}"
+    url = "/api/luma_bridge/snapshot"
     name = "api:luma_bridge:snapshot"
     requires_auth = False
 
-    async def get(self, request: web.Request, entity_id: str) -> web.Response:
+    async def get(self, request: web.Request) -> web.Response:
         """Return the current JPEG from a camera the TV is allowed to see."""
         hass: HomeAssistant = request.app["hass"]
         entry = _entry_for_request(hass, request)
         if entry is None:
             return self.json_message("unauthorized", status_code=401)
+        entity_id = request.query.get("entity_id", "")
         if not entity_id.startswith("camera.") or not _allowed_camera(entry, entity_id):
             return self.json_message("camera is not on the Luma board", status_code=404)
-        try:
-            from homeassistant.components.camera import async_get_image
-
-            image = await async_get_image(hass, entity_id, timeout=8)
-        except Exception:
+        image = await _camera_bytes(hass, entity_id)
+        if image is None:
             return self.json_message("no image", status_code=404)
-        content_type = getattr(image, "content_type", None) or "image/jpeg"
-        return web.Response(body=image.content, content_type=content_type)
+        body, content_type = image
+        return web.Response(body=body, content_type=content_type)
+
+
+async def _camera_bytes(hass: HomeAssistant, entity_id: str) -> tuple[bytes, str] | None:
+    """Ask the camera for a still, then fall back to its own image method."""
+    try:
+        from homeassistant.components.camera import async_get_image
+
+        image = await async_get_image(hass, entity_id, timeout=10)
+        content = getattr(image, "content", None)
+        if content:
+            return content, getattr(image, "content_type", None) or "image/jpeg"
+    except Exception:
+        pass
+    try:
+        component = hass.data.get("camera")
+        camera = getattr(component, "get_entity", lambda _entity: None)(entity_id)
+        if camera is None:
+            return None
+        content = await camera.async_camera_image()
+        if content:
+            return content, "image/jpeg"
+    except Exception:
+        return None
+    return None
 
 
 class LumaAlertView(HomeAssistantView):
