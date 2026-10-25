@@ -450,7 +450,7 @@ async def _camera_bytes(hass: HomeAssistant, entity_id: str) -> tuple[bytes, str
     try:
         from homeassistant.components.camera import async_get_image
 
-        image = await async_get_image(hass, entity_id, timeout=10)
+        image = await async_get_image(hass, entity_id, timeout=10, width=1920)
         content = getattr(image, "content", None)
         if content:
             return content, getattr(image, "content_type", None) or "image/jpeg"
