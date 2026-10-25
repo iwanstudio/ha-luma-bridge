@@ -60,13 +60,15 @@ def _entry_for_request(hass: HomeAssistant, request: web.Request) -> ConfigEntry
     return None
 
 
-def _tile(hass: HomeAssistant, entity_id: str) -> dict[str, str]:
+def _tile(hass: HomeAssistant, entity_id: str, names: dict[str, str]) -> dict[str, str]:
     domain = entity_id.split(".", 1)[0]
     state = hass.states.get(entity_id)
-    name = entity_id
+    custom = str(names.get(entity_id, "")).strip()
+    name = custom or entity_id
     current = "unavailable"
     if state is not None:
-        name = str(state.attributes.get("friendly_name") or entity_id)
+        if not custom:
+            name = str(state.attributes.get("friendly_name") or entity_id)
         current = state.state
     return {
         "entity_id": entity_id,
@@ -91,7 +93,8 @@ class LumaTilesView(HomeAssistantView):
         if entry is None:
             return self.json_message("unauthorized", status_code=401)
         entities = entry.options.get("entities", [])
-        return self.json({"tiles": [_tile(hass, entity_id) for entity_id in entities]})
+        names = entry.options.get("names", {})
+        return self.json({"tiles": [_tile(hass, entity_id, names) for entity_id in entities]})
 
 
 class LumaPressView(HomeAssistantView):
@@ -125,4 +128,4 @@ class LumaPressView(HomeAssistantView):
             {"entity_id": entity_id},
             blocking=False,
         )
-        return self.json({"ok": True, "tile": _tile(hass, entity_id)})
+        return self.json({"ok": True, "tile": _tile(hass, entity_id, entry.options.get("names", {}))})

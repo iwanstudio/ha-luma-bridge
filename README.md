@@ -10,8 +10,9 @@ Encje wybiera się w Home Assistant. Telewizor dostaje tylko listę kafelków i 
 2. Adres: `https://github.com/iwanstudio/ha-luma-bridge`, kategoria **Integration**.
 3. Pobierz **Luma Bridge** i zrestartuj Home Assistant.
 4. Ustawienia, Urządzenia i usługi, **Dodaj integrację**, Luma Bridge.
-5. Wybierz encje. Na końcu HA pokaże kod, na przykład `a1b2-c3d4-e5f6-7890`.
-6. Ten kod i adres HA wpiszesz później w Lumie. Kod widać też w opcjach integracji.
+5. Wybierz encje. Na następnym ekranie wpisz nazwę, która ma być na telewizorze. Może być taka sama jak na tablecie. Nazwa encji w Home Assistant się nie zmienia.
+6. Na końcu HA pokaże kod, na przykład `a1b2-c3d4-e5f6-7890`.
+7. Ten kod i adres HA wpiszesz później w Lumie. Kod i nazwy widać w opcjach integracji.
 
 Działa na lokalnym adresie, na przykład `http://192.168.3.10:8123`. Szyfrowany adres z zewnątrz nie jest potrzebny.
 
