@@ -188,3 +188,27 @@ class UsageCounter:
         counter.total = int(data.get("total", 0))
         counter.apps = {str(k): int(v) for k, v in dict(data.get("apps", {})).items()}
         return counter
+
+
+def request_payload(reason: str) -> dict:
+    """The phone notification that asks the parents for more TV time."""
+    return {
+        "title": "Salon: prośba o czas",
+        "message": f"Telewizor w salonie jest zablokowany ({reason}). "
+        "Dotknij, by wybrać, ile dodać.",
+        "data": {
+            "tag": "luma_prosba_salon",
+            "group": "tv-prosby",
+            "ttl": 0,
+            "priority": "high",
+            "importance": "high",
+            "channel": "Prośby o czas TV",
+            "url": "/kontrola-rodzicielska/salon",
+            "clickAction": "/kontrola-rodzicielska/salon",
+            "actions": [
+                {"action": "LUMA_GRANT_15", "title": "+15 min"},
+                {"action": "LUMA_GRANT_30", "title": "+30 min"},
+                {"action": "LUMA_DENY", "title": "Odrzuć i wyłącz TV", "destructive": True},
+            ],
+        },
+    }

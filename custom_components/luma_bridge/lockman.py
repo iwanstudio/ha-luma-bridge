@@ -238,24 +238,7 @@ class LockManager:
             await self.hass.services.async_call(
                 "notify",
                 name,
-                {
-                    "title": "Salon: prośba o czas",
-                    "message": f"Telewizor w salonie jest zablokowany ({reason}). "
-                    "Dotknij, by wybrać, ile dodać.",
-                    "data": {
-                        "tag": "luma_prosba_salon",
-                        "group": "tv-prosby",
-                        "ttl": 0,
-                        "priority": "high",
-                        "importance": "high",
-                        "channel": "Prośby o czas TV",
-                        "actions": [
-                            {"action": "LUMA_GRANT_30", "title": "+30 min"},
-                            {"action": "LUMA_GRANT_60", "title": "+1 h"},
-                            {"action": "LUMA_DENY", "title": "Odrzuć", "destructive": True},
-                        ],
-                    },
-                },
+                lock.request_payload(reason),
                 blocking=False,
             )
         return {"ok": True, "wait": REQUEST_WAIT}

@@ -212,3 +212,16 @@ def test_grant_text_is_polish_and_names_the_end_time():
     assert lock.grant_text(30, ts(14, 40)) == "Dostałeś +30 min. Oglądaj do 14:40."
     assert lock.grant_text(60, ts(15, 10)) == "Dostałeś +1 h. Oglądaj do 15:10."
     assert lock.grant_text(90, ts(15, 40)) == "Dostałeś +90 min. Oglądaj do 15:40."
+
+
+def test_request_notification_matches_the_children_flow():
+    p = lock.request_payload("Czas bez telewizora do 19:00")
+    assert p["title"] == "Salon: prośba o czas"
+    assert "Czas bez telewizora do 19:00" in p["message"]
+    actions = p["data"]["actions"]
+    assert [a["action"] for a in actions] == ["LUMA_GRANT_15", "LUMA_GRANT_30", "LUMA_DENY"]
+    assert [a["title"] for a in actions] == ["+15 min", "+30 min", "Odrzuć i wyłącz TV"]
+    assert actions[2]["destructive"] is True
+    assert p["data"]["url"] == "/kontrola-rodzicielska/salon"
+    assert p["data"]["clickAction"] == "/kontrola-rodzicielska/salon"
+    assert p["data"]["tag"] == "luma_prosba_salon"
