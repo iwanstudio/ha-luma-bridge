@@ -7,10 +7,11 @@ import hmac
 import math
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, tzinfo
 
 PIN_MAX = 8
 PIN_ROUNDS = 100_000
+MAX_LOCKOUT = 3600
 
 APP_KEYS = {
     "youtube": "youtube",
@@ -58,6 +59,7 @@ class PinGuard:
         self.lockout = lockout
         self.fails = 0
         self.until = 0.0
+        self.streak = 0
 
     def check(self, now: float) -> int:
         return max(0, math.ceil(self.until - now))
@@ -65,12 +67,15 @@ class PinGuard:
     def fail(self, now: float) -> None:
         self.fails += 1
         if self.fails >= self.max_fails:
-            self.until = now + self.lockout
+            wait = min(self.lockout * (2**self.streak), MAX_LOCKOUT)
+            self.until = now + wait
+            self.streak += 1
             self.fails = 0
 
     def ok(self) -> None:
         self.fails = 0
         self.until = 0.0
+        self.streak = 0
 
 
 @dataclass
@@ -87,6 +92,7 @@ class LockInputs:
     app_used_s: dict[str, int]
     current_app: str | None
     tv_on: bool
+    tz: tzinfo | None = None
 
 
 @dataclass
@@ -98,16 +104,23 @@ class LockResult:
     kid_mode: bool = False
 
 
-def _clock(timestamp: float | None) -> str:
+def _clock(timestamp: float | None, tz: tzinfo | None = None) -> str:
     if timestamp is None:
         return ""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M")
+    return datetime.fromtimestamp(timestamp, tz).strftime("%H:%M")
+
+
+def bonus_for_grant(old_until: float, new_until: float, now: float, exhausted: bool) -> int:
+    """Seconds a parent just added on top of an already used-up daily limit."""
+    if not exhausted:
+        return 0
+    return max(0, int(new_until - max(old_until, now)))
 
 
 def evaluate(i: LockInputs) -> LockResult:
     if not i.window_on:
         return LockResult()
-    until = _clock(i.window_ends)
+    until = _clock(i.window_ends, i.tz)
     if i.allowed or i.parent_until > i.now:
         return LockResult(until=until)
     if i.kid_until <= i.now:

@@ -52,11 +52,16 @@ class LockManager:
         self.digest = str(entry.options.get("parental_pin_hash") or "")
         self.guard = lock.PinGuard()
         self.counter = lock.UsageCounter(self._today())
-        self.parent_until = 0.0
+        self.parent_active = False
+        self.bonus_s = 0
         self.denied_until = 0.0
         self.pending_since = 0.0
         self.last_request = 0.0
         self.last_bounce = 0.0
+        self.last_signature: tuple | None = None
+        self._notice = ""
+        self._notice_until = 0.0
+        self._ticks = 0
         self.store: Store = Store(hass, 1, f"luma_bridge.lock.{entry.entry_id}")
         self._unsubs: list = []
         self._debounce = None
@@ -67,7 +72,11 @@ class LockManager:
     async def start(self) -> None:
         saved = await self.store.async_load() or {}
         self.counter = lock.UsageCounter.from_dict(saved.get("counter", {"day": self._today()}))
-        self.parent_until = float(saved.get("parent_until", 0))
+        self.parent_active = bool(saved.get("parent_active", False))
+        self.bonus_s = int(saved.get("bonus", 0))
+        self.counter.tick(self._today(), 0, None, False)
+        if self.counter.day != saved.get("counter", {}).get("day"):
+            self.bonus_s = 0
         self.denied_until = float(saved.get("denied_until", 0))
         self.pending_since = float(saved.get("pending_since", 0))
         self._unsubs += [
@@ -91,7 +100,8 @@ class LockManager:
     def _saved(self) -> dict[str, Any]:
         return {
             "counter": self.counter.to_dict(),
-            "parent_until": self.parent_until,
+            "parent_active": self.parent_active,
+            "bonus": self.bonus_s,
             "denied_until": self.denied_until,
             "pending_since": self.pending_since,
         }
@@ -134,14 +144,19 @@ class LockManager:
             window_ends=self._window_end(),
             allowed=bool(allowed and allowed.state == "on"),
             kid_until=float((kid.attributes.get("timestamp") if kid else 0) or 0),
-            parent_until=self.parent_until,
-            daily_limit_s=_hours(hass, DAILY),
+            parent_until=float("inf") if self.parent_active else 0.0,
+            daily_limit_s=(self._daily_limit() + self.bonus_s) if self._daily_limit() else 0,
             daily_used_s=self.counter.total,
             app_limits_s=limits,
             app_used_s=dict(self.counter.apps),
             current_app=lock.app_key(source, extras),
             tv_on=bool(player and player.state not in OFF_STATES),
+            tz=dt_util.DEFAULT_TIME_ZONE,
         )
+
+    def _daily_limit(self) -> int:
+        limit = _hours(self.hass, DAILY)
+        return limit
 
     def _evaluate(self, now: float) -> tuple[lock.LockInputs, lock.LockResult]:
         inputs = self._inputs(now)
@@ -154,6 +169,8 @@ class LockManager:
         notice = ""
         if current and current in result.blocked_apps:
             notice = f"{current}: limit na dziś wyczerpany"
+        elif self._notice_until > now:
+            notice = self._notice
         pending = (
             result.locked
             and self.pending_since > 0
@@ -174,13 +191,16 @@ class LockManager:
         wait = self.guard.check(now)
         if wait:
             return {"ok": False, "retry_after": wait}
-        if not self.digest or not lock.verify_pin(pin, self.salt, self.digest):
+        valid = bool(self.digest) and await self.hass.async_add_executor_job(
+            lock.verify_pin, pin, self.salt, self.digest
+        )
+        if not valid:
             self.guard.fail(now)
             return {"ok": False, "retry_after": self.guard.check(now)}
         self.guard.ok()
-        self.parent_until = self._window_end() or now
+        self.parent_active = self._window_end() is not None
         self.pending_since = 0.0
-        self.store.async_delay_save(self._saved, 5)
+        await self.store.async_save(self._saved())
         self._publish()
         return {"ok": True, "retry_after": 0}
 
@@ -189,6 +209,8 @@ class LockManager:
         remaining = int(self.last_request + REQUEST_WAIT - now)
         if remaining > 0:
             return {"ok": False, "wait": remaining}
+        if not any(item.startswith("notify.") for item in self.notify):
+            return {"ok": False, "wait": 0}
         self.last_request = now
         self.pending_since = now
         self.denied_until = 0.0
@@ -231,6 +253,9 @@ class LockManager:
         action = str(event.data.get("action") or "")
         if not action.startswith("LUMA_") or not self.pending_since:
             return
+        if time.time() - self.pending_since > PENDING_MAX:
+            self.pending_since = 0.0
+            return
         if action.startswith("LUMA_GRANT_"):
             try:
                 minutes = int(action.rsplit("_", 1)[1])
@@ -255,9 +280,22 @@ class LockManager:
 
     @callback
     def _changed(self, event: Event) -> None:
+        if event.data.get("entity_id") == KID_UNTIL:
+            self._grant_bonus(event.data.get("old_state"), event.data.get("new_state"))
         if self._debounce:
             self._debounce()
         self._debounce = async_call_later(self.hass, 2, self._enforce_later)
+
+    def _grant_bonus(self, old, new) -> None:
+        def stamp(state) -> float:
+            try:
+                return float(state.attributes.get("timestamp") or 0) if state else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        limit = self._daily_limit()
+        exhausted = limit > 0 and self.counter.total >= limit + self.bonus_s
+        self.bonus_s += lock.bonus_for_grant(stamp(old), stamp(new), time.time(), exhausted)
 
     async def _enforce_later(self, _now) -> None:
         self._debounce = None
@@ -266,10 +304,25 @@ class LockManager:
 
     async def _tick(self, _now) -> None:
         now = time.time()
+        today = self._today()
+        if today != self.counter.day:
+            self.bonus_s = 0
         inputs, result = self._evaluate(now)
-        counting = inputs.tv_on and inputs.window_on and result.kid_mode and not result.locked
-        self.counter.tick(self._today(), TICK, inputs.current_app, counting)
-        self.store.async_delay_save(self._saved, 30)
+        if not inputs.window_on:
+            self.parent_active = False
+        player = self.hass.states.get(self.player)
+        on_launcher = bool(player and player.attributes.get("app_id") in LAUNCHERS)
+        counting = (
+            inputs.tv_on
+            and inputs.window_on
+            and result.kid_mode
+            and not result.locked
+            and not on_launcher
+        )
+        self.counter.tick(today, TICK, inputs.current_app, counting)
+        self._ticks += 1
+        if self._ticks % 3 == 0:
+            await self.store.async_save(self._saved())
         await self._enforce()
         self._publish()
 
@@ -284,9 +337,14 @@ class LockManager:
         current = lock.NAMES.get(inputs.current_app, inputs.current_app) if inputs.current_app else ""
         if not (result.locked or (current and current in result.blocked_apps)):
             return
-        if now - self.last_bounce < 3:
+        signature = (player.attributes.get("app_id"), player.attributes.get("source"))
+        if signature == self.last_signature and now - self.last_bounce < 60:
             return
+        self.last_signature = signature
         self.last_bounce = now
+        if not result.locked and current:
+            self._notice = f"{current}: limit na dziś wyczerpany"
+            self._notice_until = now + 20
         await self.hass.services.async_call(
             "webostv",
             "button",

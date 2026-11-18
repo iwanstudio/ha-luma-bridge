@@ -143,3 +143,46 @@ def test_counter_roundtrip_survives_restart():
     again = lock.UsageCounter.from_dict(counter.to_dict())
     assert again.total == 30 and again.apps == {"youtube": 30}
     assert math.isclose(again.total, counter.total)
+
+
+def test_pin_guard_lockout_doubles_after_repeated_failures():
+    guard = lock.PinGuard()
+    for _ in range(3):
+        guard.fail(100)
+    assert guard.check(100) == 60
+    for _ in range(3):
+        guard.fail(200)
+    assert guard.check(200) == 120
+    guard.ok()
+    for _ in range(3):
+        guard.fail(1000)
+    assert guard.check(1000) == 60
+
+
+def test_pin_guard_lockout_is_capped_at_one_hour():
+    guard = lock.PinGuard()
+    for _ in range(30):
+        guard.fail(0)
+    assert guard.check(0) == 3600
+
+
+def test_clock_uses_given_timezone_not_process_timezone():
+    from datetime import timezone, timedelta
+
+    zone = timezone(timedelta(hours=1))
+    window_end = datetime(2026, 11, 18, 18, 0, tzinfo=timezone.utc).timestamp()
+    r = lock.evaluate(inputs(window_ends=window_end, tz=zone))
+    assert r.until == "19:00"
+
+
+def test_grant_after_limit_exhausted_adds_bonus_seconds():
+    assert lock.bonus_for_grant(ts(14), ts(14, 30), ts(14, 10), True) == 20 * 60
+    assert lock.bonus_for_grant(ts(15), ts(15, 30), ts(14, 10), True) == 30 * 60
+
+
+def test_grant_before_limit_exhausted_adds_no_bonus():
+    assert lock.bonus_for_grant(ts(14), ts(14, 30), ts(14, 10), False) == 0
+
+
+def test_shortened_or_cleared_grant_adds_no_bonus():
+    assert lock.bonus_for_grant(ts(15), ts(14, 30), ts(14, 10), True) == 0
