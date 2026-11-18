@@ -284,6 +284,7 @@ class LumaBridgeOptionsFlow(OptionsFlow):
                     salt = new_salt()
                     options["parental_pin_salt"] = salt.hex()
                     options["parental_pin_hash"] = hash_pin(pin, salt)
+                    options["parental_pin_length"] = len(pin)
                 return self.async_create_entry(data=options)
         phones = sorted(
             f"notify.{name}"

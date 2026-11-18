@@ -184,6 +184,7 @@ class LockManager:
             "denied": self.denied_until > now,
             "blocked_apps": result.blocked_apps,
             "notice": notice,
+            "pin_length": int(self.entry.options.get("parental_pin_length") or 0),
         }
 
     async def unlock(self, pin: str) -> dict[str, Any]:

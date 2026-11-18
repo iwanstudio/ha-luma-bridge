@@ -559,6 +559,7 @@ IDLE_LOCK = {
     "denied": False,
     "blocked_apps": [],
     "notice": "",
+    "pin_length": 0,
 }
 
 

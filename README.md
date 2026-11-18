@@ -74,3 +74,5 @@ POST /api/luma_bridge/lock/request  {}
 ```
 
 Gdy telewizor nie ma łączności z Home Assistantem, Luma niczego nie blokuje.
+
+Odpowiedź `GET /lock` zawiera też `pin_length` (liczba cyfr PIN-u rodzica; 0, gdy nieznana), żeby Luma rysowała tyle kropek, ile ma PIN.
