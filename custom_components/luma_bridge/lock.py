@@ -212,3 +212,23 @@ def request_payload(reason: str) -> dict:
             ],
         },
     }
+
+
+def time_left(i: LockInputs) -> int | None:
+    """Seconds of child viewing left before the TV locks again, or None when no clock runs."""
+    result = evaluate(i)
+    if result.locked or not result.kid_mode:
+        return None
+    candidates = [i.kid_until - i.now]
+    if i.daily_limit_s > 0:
+        candidates.append(i.daily_limit_s - i.daily_used_s)
+    if i.current_app:
+        limit = i.app_limits_s.get(i.current_app, 0)
+        if limit > 0:
+            candidates.append(limit - i.app_used_s.get(i.current_app, 0))
+    return max(0, int(min(candidates)))
+
+
+def warning_text(seconds: int) -> str:
+    minutes = max(1, round(seconds / 60))
+    return f"Za {minutes} min czas się skończy i telewizor zostanie zablokowany."

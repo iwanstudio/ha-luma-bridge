@@ -80,3 +80,5 @@ Odpowiedź `GET /lock` zawiera też `pin_length` (liczba cyfr PIN-u rodzica; 0, 
 Blokada ręczna: `input_boolean.tv_salon_blokada_reczna` blokuje telewizor od razu, także poza czasem bez telewizora. Odblokowuje ją PIN albo przyznanie czasu. Po przyznaniu czasu telewizor pokazuje komunikat „Dostałeś +30 min. Oglądaj do 16:45.” (toast LG webOS).
 
 Powiadomienie z prośbą o czas ma przyciski „+15 min”, „+30 min” i „Odrzuć i wyłącz TV”, a po dotknięciu otwiera widok SALON w kontroli rodzicielskiej.
+
+Ostrzeżenie: gdy do końca czasu zostaje 15 minut (zgoda, limit dzienny albo limit aplikacji), telewizor pokazuje komunikat „Za 15 min czas się skończy i telewizor zostanie zablokowany.”

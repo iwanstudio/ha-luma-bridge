@@ -225,3 +225,37 @@ def test_request_notification_matches_the_children_flow():
     assert p["data"]["url"] == "/kontrola-rodzicielska/salon"
     assert p["data"]["clickAction"] == "/kontrola-rodzicielska/salon"
     assert p["data"]["tag"] == "luma_prosba_salon"
+
+
+def test_time_left_is_the_nearest_of_grant_daily_and_app_limits():
+    base = dict(kid_until=ts(15), now=ts(14, 30))
+    assert lock.time_left(inputs(**base)) == 30 * 60
+    assert lock.time_left(inputs(**base, daily_limit_s=3600, daily_used_s=3000)) == 600
+    assert (
+        lock.time_left(
+            inputs(
+                **base,
+                current_app="netflix",
+                app_limits_s={"netflix": 1200},
+                app_used_s={"netflix": 900},
+            )
+        )
+        == 300
+    )
+
+
+def test_time_left_is_none_without_a_child_grant_or_when_locked():
+    assert lock.time_left(inputs(now=ts(14))) is None
+    assert lock.time_left(inputs(window_on=False)) is None
+    assert lock.time_left(inputs(kid_until=ts(15), manual_lock=True)) is None
+    assert lock.time_left(inputs(parent_until=ts(19), kid_until=ts(15))) is None
+    assert (
+        lock.time_left(inputs(kid_until=ts(15), daily_limit_s=60, daily_used_s=60)) is None
+    )
+
+
+def test_warning_text_names_the_minutes_left():
+    assert lock.warning_text(900) == (
+        "Za 15 min czas się skończy i telewizor zostanie zablokowany."
+    )
+    assert lock.warning_text(50).startswith("Za 1 min ")

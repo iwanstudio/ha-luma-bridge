@@ -21,6 +21,7 @@ from . import lock
 
 TICK = 10
 REQUEST_WAIT = 120
+WARN_SECONDS = 900
 DENIED_SHOW = 15
 PENDING_MAX = 600
 LAUNCHERS = {"com.ecklf.luma", "com.webos.app.home"}
@@ -74,6 +75,7 @@ class LockManager:
         self._notice = ""
         self._notice_until = 0.0
         self._ticks = 0
+        self.warned = False
         self.store: Store = Store(hass, 1, f"luma_bridge.lock.{entry.entry_id}")
         self._unsubs: list = []
         self._debounce = None
@@ -287,6 +289,16 @@ class LockManager:
             self._debounce()
         self._debounce = async_call_later(self.hass, 2, self._enforce_later)
 
+    async def _warn(self, inputs: lock.LockInputs) -> None:
+        left = lock.time_left(inputs)
+        if left is None or left > WARN_SECONDS:
+            self.warned = False
+            return
+        if self.warned or left <= 0 or not inputs.tv_on:
+            return
+        self.warned = True
+        await self._toast(lock.warning_text(left))
+
     async def _lift_manual(self) -> None:
         state = self.hass.states.get(MANUAL)
         if state and state.state == "on":
@@ -319,6 +331,9 @@ class LockManager:
         player = self.hass.states.get(self.player)
         if player and player.state not in OFF_STATES:
             await self._toast(lock.grant_text(minutes, new_ts, dt_util.DEFAULT_TIME_ZONE))
+        # The grant message already names the end time, so no second warning right away.
+        left = lock.time_left(self._inputs(time.time()))
+        self.warned = left is not None and left <= WARN_SECONDS
 
     def _grant_bonus(self, old, new) -> None:
         def stamp(state) -> float:
@@ -354,6 +369,7 @@ class LockManager:
             and not on_launcher
         )
         self.counter.tick(today, TICK, inputs.current_app, counting)
+        await self._warn(inputs)
         self._ticks += 1
         if self._ticks % 3 == 0:
             await self.store.async_save(self._saved())
