@@ -60,3 +60,17 @@ POST /api/luma_bridge/press
 ```
 
 Innej encji telewizor nie uruchomi.
+
+## Kontrola rodzicielska (salon)
+
+Opcje integracji → „Kontrola rodzicielska (salon)”: włącz blokadę, wskaż telewizor (`media_player.lg_webos_tv`), telefony rodziców i ustaw PIN (4–8 cyfr).
+
+Blokada działa, gdy `schedule.tv_salon_czas_bez_telewizora` jest włączony. Luma pokazuje wtedy ekran blokady. Odblokowanie: PIN z pilota (tryb rodzica, do końca okna, bez limitów) albo zgoda z telefonu na wybraną liczbę minut (tryb dziecka, z limitami). Limity ustawiasz pomocnikami `input_number.tv_salon_limit_*`. Liczniki zerują się o północy.
+
+```http
+GET  /api/luma_bridge/lock
+POST /api/luma_bridge/lock/unlock   {"pin": "1234"}
+POST /api/luma_bridge/lock/request  {}
+```
+
+Gdy telewizor nie ma łączności z Home Assistantem, Luma niczego nie blokuje.

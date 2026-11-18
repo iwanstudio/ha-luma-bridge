@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import logging
 import math
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ from homeassistant.helpers.typing import ConfigType
 from .const import ACTION, DOMAIN
 from .lockman import LockManager
 
+_LOGGER = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 SCAN_HTML = (HERE / "scan.html").read_text(encoding="utf-8")
 JSQR = (HERE / "jsqr.min.js").read_bytes()
@@ -53,14 +55,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(unsub)
     if entry.options.get("parental_enabled") and entry.options.get("parental_pin_hash"):
         manager = LockManager(hass, entry)
-        await manager.start()
-        bucket.setdefault("locks", {})[entry.entry_id] = manager
+        try:
+            await manager.start()
+        except Exception:  # the lock must never take the tiles down with it
+            _LOGGER.exception("Parental lock could not start; the TV stays unlocked")
+        else:
+            bucket.setdefault("locks", {})[entry.entry_id] = manager
 
-        async def _stop_lock() -> None:
-            bucket["locks"].pop(entry.entry_id, None)
-            await manager.stop()
+            async def _stop_lock() -> None:
+                bucket["locks"].pop(entry.entry_id, None)
+                await manager.stop()
 
-        entry.async_on_unload(_stop_lock)
+            entry.async_on_unload(_stop_lock)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
