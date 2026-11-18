@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import timedelta
 from typing import Any
@@ -28,8 +29,19 @@ DEFAULT_PLAYER = "media_player.lg_webos_tv"
 SCHEDULE = "schedule.tv_salon_czas_bez_telewizora"
 ALLOWED = "input_boolean.tv_salon_zezwolenie"
 KID_UNTIL = "input_datetime.tv_salon_przedluzenie_do"
+MANUAL = "input_boolean.tv_salon_blokada_reczna"
 DAILY = "input_number.tv_salon_limit_dzienny_h"
 EXTRA_COUNT = 3
+
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _stamp(state) -> float:
+    try:
+        return float(state.attributes.get("timestamp") or 0) if state else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _hours(hass: HomeAssistant, entity_id: str) -> int:
@@ -82,7 +94,7 @@ class LockManager:
         self._unsubs += [
             async_track_time_interval(self.hass, self._tick, timedelta(seconds=TICK)),
             async_track_state_change_event(
-                self.hass, [self.player, SCHEDULE, KID_UNTIL, ALLOWED], self._changed
+                self.hass, [self.player, SCHEDULE, KID_UNTIL, ALLOWED, MANUAL], self._changed
             ),
             self.hass.bus.async_listen("mobile_app_notification_action", self._action),
             self.hass.bus.async_listen("luma_bridge_denied", self._denied),
@@ -125,6 +137,7 @@ class LockManager:
         hass = self.hass
         schedule = hass.states.get(SCHEDULE)
         allowed = hass.states.get(ALLOWED)
+        manual = hass.states.get(MANUAL)
         kid = hass.states.get(KID_UNTIL)
         player = hass.states.get(self.player)
         extras = self._extras()
@@ -152,6 +165,7 @@ class LockManager:
             current_app=lock.app_key(source, extras),
             tv_on=bool(player and player.state not in OFF_STATES),
             tz=dt_util.DEFAULT_TIME_ZONE,
+            manual_lock=bool(manual and manual.state == "on"),
         )
 
     def _daily_limit(self) -> int:
@@ -200,6 +214,7 @@ class LockManager:
             return {"ok": False, "retry_after": self.guard.check(now)}
         self.guard.ok()
         self.parent_active = self._window_end() is not None
+        await self._lift_manual()
         self.pending_since = 0.0
         await self.store.async_save(self._saved())
         self._publish()
@@ -282,10 +297,45 @@ class LockManager:
     @callback
     def _changed(self, event: Event) -> None:
         if event.data.get("entity_id") == KID_UNTIL:
-            self._grant_bonus(event.data.get("old_state"), event.data.get("new_state"))
+            old, new = event.data.get("old_state"), event.data.get("new_state")
+            self._grant_bonus(old, new)
+            self.hass.async_create_task(self._on_grant(old, new))
         if self._debounce:
             self._debounce()
         self._debounce = async_call_later(self.hass, 2, self._enforce_later)
+
+    async def _lift_manual(self) -> None:
+        state = self.hass.states.get(MANUAL)
+        if state and state.state == "on":
+            await self.hass.services.async_call(
+                "input_boolean", "turn_off", {"entity_id": MANUAL}
+            )
+
+    async def _toast(self, text: str) -> None:
+        try:
+            await self.hass.services.async_call(
+                "webostv",
+                "command",
+                {
+                    "entity_id": self.player,
+                    "command": "system.notifications/createToast",
+                    "payload": {"message": text},
+                },
+                blocking=False,
+            )
+        except Exception:  # a missing toast must never break the lock
+            _LOGGER.warning("Could not show the TV message", exc_info=True)
+
+    async def _on_grant(self, old, new) -> None:
+        now = time.time()
+        new_ts = _stamp(new)
+        minutes = lock.grant_minutes(_stamp(old), new_ts, now)
+        if new_ts <= now or minutes < 1:
+            return
+        await self._lift_manual()
+        player = self.hass.states.get(self.player)
+        if player and player.state not in OFF_STATES:
+            await self._toast(lock.grant_text(minutes, new_ts, dt_util.DEFAULT_TIME_ZONE))
 
     def _grant_bonus(self, old, new) -> None:
         def stamp(state) -> float:

@@ -76,3 +76,5 @@ POST /api/luma_bridge/lock/request  {}
 Gdy telewizor nie ma łączności z Home Assistantem, Luma niczego nie blokuje.
 
 Odpowiedź `GET /lock` zawiera też `pin_length` (liczba cyfr PIN-u rodzica; 0, gdy nieznana), żeby Luma rysowała tyle kropek, ile ma PIN.
+
+Blokada ręczna: `input_boolean.tv_salon_blokada_reczna` blokuje telewizor od razu, także poza czasem bez telewizora. Odblokowuje ją PIN albo przyznanie czasu. Po przyznaniu czasu telewizor pokazuje komunikat „Dostałeś +30 min. Oglądaj do 16:45.” (toast LG webOS).

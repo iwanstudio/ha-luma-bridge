@@ -93,6 +93,7 @@ class LockInputs:
     current_app: str | None
     tv_on: bool
     tz: tzinfo | None = None
+    manual_lock: bool = False
 
 
 @dataclass
@@ -110,6 +111,16 @@ def _clock(timestamp: float | None, tz: tzinfo | None = None) -> str:
     return datetime.fromtimestamp(timestamp, tz).strftime("%H:%M")
 
 
+def grant_minutes(old_until: float, new_until: float, now: float) -> int:
+    """Whole minutes a new grant adds on top of what was still left."""
+    return max(0, round((new_until - max(old_until, now)) / 60))
+
+
+def grant_text(minutes: int, until: float, tz: tzinfo | None = None) -> str:
+    label = f"{minutes // 60} h" if minutes % 60 == 0 and minutes >= 60 else f"{minutes} min"
+    return f"Dostałeś +{label}. Oglądaj do {_clock(until, tz)}."
+
+
 def bonus_for_grant(old_until: float, new_until: float, now: float, exhausted: bool) -> int:
     """Seconds a parent just added on top of an already used-up daily limit."""
     if not exhausted:
@@ -118,6 +129,8 @@ def bonus_for_grant(old_until: float, new_until: float, now: float, exhausted: b
 
 
 def evaluate(i: LockInputs) -> LockResult:
+    if i.manual_lock:
+        return LockResult(locked=True, reason="Zablokowane przez rodziców")
     if not i.window_on:
         return LockResult()
     until = _clock(i.window_ends, i.tz)

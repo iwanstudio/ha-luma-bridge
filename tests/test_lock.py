@@ -186,3 +186,29 @@ def test_grant_before_limit_exhausted_adds_no_bonus():
 
 def test_shortened_or_cleared_grant_adds_no_bonus():
     assert lock.bonus_for_grant(ts(15), ts(14, 30), ts(14, 10), True) == 0
+
+
+def test_manual_lock_locks_outside_window_and_beats_every_grant():
+    r = lock.evaluate(inputs(window_on=False, manual_lock=True))
+    assert r.locked and "rodziców" in r.reason
+    r = lock.evaluate(
+        inputs(manual_lock=True, allowed=True, parent_until=ts(19), kid_until=ts(16))
+    )
+    assert r.locked and "rodziców" in r.reason
+
+
+def test_manual_lock_off_changes_nothing():
+    assert not lock.evaluate(inputs(window_on=False, manual_lock=False)).locked
+    assert lock.evaluate(inputs(manual_lock=False)).locked
+
+
+def test_grant_minutes_counts_from_the_later_of_old_grant_and_now():
+    assert lock.grant_minutes(ts(14), ts(14, 30), ts(14, 10)) == 20
+    assert lock.grant_minutes(ts(15), ts(15, 30), ts(14, 10)) == 30
+    assert lock.grant_minutes(ts(15), ts(14, 30), ts(14, 10)) == 0
+
+
+def test_grant_text_is_polish_and_names_the_end_time():
+    assert lock.grant_text(30, ts(14, 40)) == "Dostałeś +30 min. Oglądaj do 14:40."
+    assert lock.grant_text(60, ts(15, 10)) == "Dostałeś +1 h. Oglądaj do 15:10."
+    assert lock.grant_text(90, ts(15, 40)) == "Dostałeś +90 min. Oglądaj do 15:40."
