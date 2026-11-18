@@ -18,6 +18,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
 from .const import ACTION, DOMAIN
+from .lockman import LockManager
 
 HERE = Path(__file__).parent
 SCAN_HTML = (HERE / "scan.html").read_text(encoding="utf-8")
@@ -43,10 +44,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(LumaSnapshotView())
         hass.http.register_view(LumaStreamView())
         hass.http.register_view(LumaAlertView())
+        hass.http.register_view(LumaLockView())
+        hass.http.register_view(LumaLockUnlockView())
+        hass.http.register_view(LumaLockRequestView())
         bucket["views"] = True
     unsub = _listen_doorbell(hass, entry)
     if unsub is not None:
         entry.async_on_unload(unsub)
+    if entry.options.get("parental_enabled") and entry.options.get("parental_pin_hash"):
+        manager = LockManager(hass, entry)
+        await manager.start()
+        bucket.setdefault("locks", {})[entry.entry_id] = manager
+
+        async def _stop_lock() -> None:
+            bucket["locks"].pop(entry.entry_id, None)
+            await manager.stop()
+
+        entry.async_on_unload(_stop_lock)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -529,3 +543,75 @@ class LumaAlertView(HomeAssistantView):
         return self.json(
             {"id": ring["id"], "camera": ring["camera"], "title": ring["title"]}
         )
+
+
+IDLE_LOCK = {
+    "locked": False,
+    "reason": "",
+    "until": "",
+    "pending": False,
+    "denied": False,
+    "blocked_apps": [],
+    "notice": "",
+}
+
+
+def _manager(hass: HomeAssistant, entry: ConfigEntry) -> LockManager | None:
+    return hass.data[DOMAIN].get("locks", {}).get(entry.entry_id)
+
+
+class LumaLockView(HomeAssistantView):
+    """Whether the TV is locked right now, and why."""
+
+    url = "/api/luma_bridge/lock"
+    name = "api:luma_bridge:lock"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        manager = _manager(hass, entry)
+        return self.json(manager.state() if manager else IDLE_LOCK)
+
+
+class LumaLockUnlockView(HomeAssistantView):
+    """Check a parent PIN typed on the TV remote."""
+
+    url = "/api/luma_bridge/lock/unlock"
+    name = "api:luma_bridge:lock_unlock"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        manager = _manager(hass, entry)
+        if manager is None:
+            return self.json({"ok": False, "retry_after": 0})
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        pin = body.get("pin", "") if isinstance(body, dict) else ""
+        return self.json(await manager.unlock(pin if isinstance(pin, str) else ""))
+
+
+class LumaLockRequestView(HomeAssistantView):
+    """Ask the parents' phones for more time."""
+
+    url = "/api/luma_bridge/lock/request"
+    name = "api:luma_bridge:lock_request"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = _entry_for_request(hass, request)
+        if entry is None:
+            return self.json_message("unauthorized", status_code=401)
+        manager = _manager(hass, entry)
+        if manager is None:
+            return self.json({"ok": False, "wait": 0})
+        return self.json(await manager.request())

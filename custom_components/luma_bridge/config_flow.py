@@ -13,6 +13,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN, DOMAINS
+from .lock import PIN_MAX, hash_pin, new_salt
 
 NAME_LIMIT = 40
 
@@ -172,7 +173,9 @@ class LumaBridgeOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         """Choose pairing or the tile list."""
-        return self.async_show_menu(step_id="init", menu_options=["pair", "tiles", "doorbell"])
+        return self.async_show_menu(
+            step_id="init", menu_options=["pair", "tiles", "doorbell", "parental"]
+        )
 
     async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> Any:
         """Open the phone scanner. The TV shows the QR code."""
@@ -199,7 +202,9 @@ class LumaBridgeOptionsFlow(OptionsFlow):
         if user_input is not None:
             self._entities = list(user_input["entities"])
             if not self._entities:
-                return self.async_create_entry(data={"entities": [], "names": {}})
+                return self.async_create_entry(
+                    data={**self.config_entry.options, "entities": [], "names": {}}
+                )
             return await self.async_step_names()
         current = list(self.config_entry.options.get("entities", []))
         return self.async_show_form(
@@ -212,7 +217,9 @@ class LumaBridgeOptionsFlow(OptionsFlow):
         """Save a display name for every selected entity."""
         if user_input is not None:
             names = _collect_names(user_input, self._labels)
-            return self.async_create_entry(data={"entities": self._entities, "names": names})
+            return self.async_create_entry(
+                data={**self.config_entry.options, "entities": self._entities, "names": names}
+            )
         current = dict(self.config_entry.options.get("names", {}))
         schema, self._labels = _names_schema(self.hass, self._entities, current)
         return self.async_show_form(step_id="names", data_schema=schema)
@@ -251,6 +258,64 @@ class LumaBridgeOptionsFlow(OptionsFlow):
                         }
                     ),
                     camera_field: selector({"entity": {"multiple": False, "domain": "camera"}}),
+                }
+            ),
+        )
+
+    async def async_step_parental(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Turn the living-room lock on, pick the TV and phones, set the parent PIN."""
+        options = dict(self.config_entry.options)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            pin = str(user_input.get("parental_pin") or "")
+            if pin and not (pin.isascii() and pin.isdigit() and 4 <= len(pin) <= PIN_MAX):
+                errors["parental_pin"] = "bad_pin"
+            elif user_input.get("parental_enabled") and not pin and not options.get(
+                "parental_pin_hash"
+            ):
+                errors["parental_pin"] = "pin_required"
+            else:
+                options["parental_enabled"] = bool(user_input.get("parental_enabled"))
+                options["parental_media_player"] = str(
+                    user_input.get("parental_media_player") or ""
+                )
+                options["parental_notify"] = list(user_input.get("parental_notify") or [])
+                if pin:
+                    salt = new_salt()
+                    options["parental_pin_salt"] = salt.hex()
+                    options["parental_pin_hash"] = hash_pin(pin, salt)
+                return self.async_create_entry(data=options)
+        phones = sorted(
+            f"notify.{name}"
+            for name in self.hass.services.async_services().get("notify", {})
+            if name.startswith("mobile_app_")
+        )
+        current = list(options.get("parental_notify") or [])
+        return self.async_show_form(
+            step_id="parental",
+            errors=errors,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "parental_enabled", default=bool(options.get("parental_enabled"))
+                    ): selector({"boolean": {}}),
+                    vol.Required(
+                        "parental_media_player",
+                        default=str(options.get("parental_media_player") or "media_player.lg_webos_tv"),
+                    ): selector({"entity": {"multiple": False, "domain": "media_player"}}),
+                    vol.Optional(
+                        "parental_notify", default=current
+                    ): selector(
+                        {
+                            "select": {
+                                "multiple": True,
+                                "options": sorted(set(phones) | set(current)),
+                            }
+                        }
+                    ),
+                    vol.Optional("parental_pin"): selector(
+                        {"text": {"type": "password"}}
+                    ),
                 }
             ),
         )

@@ -31,7 +31,8 @@
         "menu_options": {
           "pair": "Pair the TV with a QR code",
           "tiles": "Tiles and names",
-          "doorbell": "Doorbell and camera"
+          "doorbell": "Doorbell and camera",
+          "parental": "Parental lock (living room)"
         }
       },
       "doorbell": {
@@ -60,11 +61,29 @@
       "names": {
         "title": "Names on the TV",
         "description": "Type the name for the television. The Home Assistant name does not change."
+      },
+      "parental": {
+        "title": "Parental lock",
+        "description": "While the living-room schedule is on, the TV asks for a parent PIN or an approval from a phone. Leave the PIN empty to keep the current one.",
+        "data": {
+          "parental_enabled": "Lock enabled",
+          "parental_media_player": "TV (webOS)",
+          "parental_notify": "Parent phones",
+          "parental_pin": "Parent PIN (4-8 digits)"
+        },
+        "data_description": {
+          "parental_media_player": "The LG webOS TV media player.",
+          "parental_notify": "Phones that get the approval request."
+        }
       }
     },
     "abort": {
       "paired": "The TV is connected. Tiles show up on the Luma home screen.",
       "pair_failed": "The TV did not connect."
+    },
+    "error": {
+      "bad_pin": "The PIN must be 4 to 8 digits.",
+      "pin_required": "Set a PIN before turning the lock on."
     }
   }
 }

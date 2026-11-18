@@ -31,7 +31,8 @@
         "menu_options": {
           "pair": "Połącz telewizor kodem QR",
           "tiles": "Kafelki i nazwy",
-          "doorbell": "Dzwonek i kamera"
+          "doorbell": "Dzwonek i kamera",
+          "parental": "Kontrola rodzicielska (salon)"
         }
       },
       "doorbell": {
@@ -60,11 +61,29 @@
       "names": {
         "title": "Nazwy na telewizorze",
         "description": "Wpisz nazwę na telewizor. Nazwa w Home Assistant zostaje bez zmian."
+      },
+      "parental": {
+        "title": "Kontrola rodzicielska",
+        "description": "Gdy działa harmonogram „czas bez telewizora”, telewizor prosi o PIN rodzica albo zgodę z telefonu. Zostaw PIN pusty, żeby zachować obecny.",
+        "data": {
+          "parental_enabled": "Blokada włączona",
+          "parental_media_player": "Telewizor (webOS)",
+          "parental_notify": "Telefony rodziców",
+          "parental_pin": "PIN rodzica (4–8 cyfr)"
+        },
+        "data_description": {
+          "parental_media_player": "Odtwarzacz telewizora LG webOS.",
+          "parental_notify": "Telefony, które dostają prośbę o zgodę."
+        }
       }
     },
     "abort": {
       "paired": "Telewizor połączony. Kafelki pojawią się na ekranie głównym Lumy.",
       "pair_failed": "Telewizor się nie połączył."
+    },
+    "error": {
+      "bad_pin": "PIN musi mieć od 4 do 8 cyfr.",
+      "pin_required": "Ustaw PIN, zanim włączysz blokadę."
     }
   }
 }
