@@ -82,3 +82,7 @@ Blokada ręczna: `input_boolean.tv_salon_blokada_reczna` blokuje telewizor od ra
 Powiadomienie z prośbą o czas ma przyciski „+15 min”, „+30 min” i „Odrzuć i wyłącz TV”, a po dotknięciu otwiera widok SALON w kontroli rodzicielskiej.
 
 Ostrzeżenie: gdy do końca czasu zostaje 15 minut (zgoda, limit dzienny albo limit aplikacji), telewizor pokazuje komunikat „Za 15 min czas się skończy i telewizor zostanie zablokowany.”
+
+### Historia i statystyki (od 0.4.0)
+
+Całe oglądanie jest liczone niezależnie od czasu bez telewizora: `sensor.luma_salon_ogladanie_dzis` (z długoterminowymi statystykami), `sensor.luma_salon_aplikacja_teraz` i `sensor.luma_salon_statystyki` (ranking aplikacji: dziś, 7 i 30 dni, czas i liczba uruchomień). Ekran Luma i wyłączony telewizor się nie liczą. Limity rodzicielskie mają osobne liczniki i działają jak dotąd.

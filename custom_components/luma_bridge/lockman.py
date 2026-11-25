@@ -17,14 +17,14 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import lock
+from . import lock, stats
 
 TICK = 10
 REQUEST_WAIT = 120
 WARN_SECONDS = 900
 DENIED_SHOW = 15
 PENDING_MAX = 600
-LAUNCHERS = {"com.ecklf.luma", "com.webos.app.home"}
+LAUNCHERS = stats.LAUNCHERS
 OFF_STATES = {"off", "unavailable", "unknown", None}
 DEFAULT_PLAYER = "media_player.lg_webos_tv"
 SCHEDULE = "schedule.tv_salon_czas_bez_telewizora"
@@ -65,6 +65,7 @@ class LockManager:
         self.digest = str(entry.options.get("parental_pin_hash") or "")
         self.guard = lock.PinGuard()
         self.counter = lock.UsageCounter(self._today())
+        self.history = stats.History()
         self.parent_active = False
         self.bonus_s = 0
         self.denied_until = 0.0
@@ -86,6 +87,7 @@ class LockManager:
     async def start(self) -> None:
         saved = await self.store.async_load() or {}
         self.counter = lock.UsageCounter.from_dict(saved.get("counter", {"day": self._today()}))
+        self.history = stats.History.from_dict(saved.get("history", {}))
         self.parent_active = bool(saved.get("parent_active", False))
         self.bonus_s = int(saved.get("bonus", 0))
         self.counter.tick(self._today(), 0, None, False)
@@ -114,6 +116,7 @@ class LockManager:
     def _saved(self) -> dict[str, Any]:
         return {
             "counter": self.counter.to_dict(),
+            "history": self.history.to_dict(),
             "parent_active": self.parent_active,
             "bonus": self.bonus_s,
             "denied_until": self.denied_until,
@@ -369,12 +372,52 @@ class LockManager:
             and not on_launcher
         )
         self.counter.tick(today, TICK, inputs.current_app, counting)
+        self.history.tick(today, TICK, self._viewed(inputs.tv_on))
         await self._warn(inputs)
         self._ticks += 1
         if self._ticks % 3 == 0:
             await self.store.async_save(self._saved())
         await self._enforce()
         self._publish()
+
+    def _viewed(self, tv_on: bool) -> str | None:
+        player = self.hass.states.get(self.player)
+        if player is None:
+            return None
+        return stats.viewed_app(
+            tv_on, player.attributes.get("app_id"), player.attributes.get("source")
+        )
+
+    def _publish_history(self, tv_on: bool) -> None:
+        today = self._today()
+        states = self.hass.states
+        states.async_set(
+            "sensor.luma_salon_ogladanie_dzis",
+            self.history.total_minutes(today),
+            {
+                "friendly_name": "Salon: oglądanie dziś (cały dzień)",
+                "unit_of_measurement": "min",
+                "device_class": "duration",
+                "state_class": "total_increasing",
+            },
+        )
+        states.async_set(
+            "sensor.luma_salon_aplikacja_teraz",
+            self._viewed(tv_on) or "brak",
+            {"friendly_name": "Salon: aplikacja teraz", "icon": "mdi:apps"},
+        )
+        week = self.history.ranking(today, 7)
+        states.async_set(
+            "sensor.luma_salon_statystyki",
+            week[0]["name"] if week else "brak",
+            {
+                "friendly_name": "Salon: najdłużej w 7 dni",
+                "icon": "mdi:chart-bar",
+                "dzis": self.history.ranking(today, 1),
+                "tydzien": week,
+                "miesiac": self.history.ranking(today, 30),
+            },
+        )
 
     async def _enforce(self) -> None:
         now = time.time()
@@ -405,6 +448,7 @@ class LockManager:
     def _publish(self) -> None:
         now = time.time()
         inputs, result = self._evaluate(now)
+        self._publish_history(inputs.tv_on)
         states = self.hass.states
         states.async_set(
             "binary_sensor.luma_salon_zablokowany",
